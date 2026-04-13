@@ -1,2 +1,5 @@
+[build]
+builder = "NIXPACKS"
+
 [phases.setup]
-nixPkgs = ["chromium", "glib", "nss", "atk", "at-spi2-atk", "cups", "libxkbcommon"]
+nixPkgs = ["chromium"]
