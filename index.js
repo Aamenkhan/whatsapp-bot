@@ -1,16 +1,15 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const axios = require('axios');
+const { Client, RemoteAuth } = require('whatsapp-web.js');
+const { MongoStore } = require('wwebjs-mongo');
+const mongoose = require('mongoose');
 const qrcode = require('qrcode-terminal');
-const gTTS = require('gtts');
 const express = require('express');
 
-const APP_LINK = "https://drive.google.com/uc?export=download&id=1RSwoYB96kY-HfZ55FusPhVSH5_V0lOj5";
-const ADMIN = "919407196146@c.us";
-
+// ======================
+// EXPRESS SERVER (IMPORTANT FOR RENDER)
+// ======================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🌐 Express server (Railway)
 app.get('/', (req, res) => {
   res.send('Bot is running ✅');
 });
@@ -19,45 +18,49 @@ app.listen(PORT, () => {
   console.log('Server running on port', PORT);
 });
 
-// ✅ SINGLE CLIENT (FIXED)
+// ======================
+// MONGODB CONNECTION
+// ======================
+mongoose.connect(process.env.MONGO_URL)
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log("Mongo Error ❌", err));
+
+const store = new MongoStore({ mongoose });
+
+// ======================
+// WHATSAPP CLIENT
+// ======================
 const client = new Client({
-  authStrategy: new LocalAuth(),
+  authStrategy: new RemoteAuth({
+    store: store,
+    backupSyncIntervalMs: 300000
+  }),
   puppeteer: {
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
     headless: true
   }
 });
 
-// 🔑 API KEY
-const PEXELS_KEY = "YOUR_PEXELS_API_KEY";
-
-// 🛒 Products
-const products = {
-  milk: { price: 50 },
-  paneer: { price: 300 },
-  shirt: { price: 500 }
-};
-
-// 🧠 Memory
-let orders = {};
-let customers = [];
-let repeatCustomers = {};
-
 // ======================
-// QR
+// QR CODE
 // ======================
-client.on('qr', qr => {
+client.on('qr', (qr) => {
+  console.log('Scan QR below:');
   qrcode.generate(qr, { small: true });
 });
 
+// ======================
+// READY
+// ======================
 client.on('ready', () => {
   console.log('✅ Bot Ready!');
 });
 
 // ======================
-client.on('message', async msg => {
+// MESSAGES
+// ======================
+client.on('message', async (msg) => {
   const text = msg.body.toLowerCase().trim();
-  const user = msg.from;
 
   if (text === "hi") {
     return msg.reply("Hello 👋");
@@ -69,9 +72,13 @@ client.on('message', async msg => {
 });
 
 // ======================
+// ERROR HANDLING
+// ======================
 process.on("unhandledRejection", err => {
   console.log("Error:", err);
 });
 
-// START
+// ======================
+// START BOT
+// ======================
 client.initialize();
