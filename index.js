@@ -5,7 +5,7 @@ const qrcode = require('qrcode-terminal');
 const express = require('express');
 
 // ======================
-// EXPRESS SERVER (IMPORTANT FOR RENDER)
+// EXPRESS SERVER
 // ======================
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,57 +19,55 @@ app.listen(PORT, () => {
 });
 
 // ======================
-// MONGODB CONNECTION
+// START EVERYTHING AFTER MONGO CONNECT
 // ======================
 mongoose.connect(process.env.MONGO_URL)
-  .then(() => console.log("MongoDB Connected ✅"))
-  .catch(err => console.log("Mongo Error ❌", err));
+  .then(() => {
+    console.log("MongoDB Connected ✅");
 
-const store = new MongoStore({ mongoose });
+    const store = new MongoStore({ mongoose });
 
-// ======================
-// WHATSAPP CLIENT
-// ======================
-const client = new Client({
-  authStrategy: new RemoteAuth({
-    store: store,
-    backupSyncIntervalMs: 300000
-  }),
-  puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    headless: true
-  }
-});
+    const client = new Client({
+      authStrategy: new RemoteAuth({
+        store: store,
+        backupSyncIntervalMs: 300000
+      }),
+      puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: true
+      }
+    });
 
-// ======================
-// QR CODE
-// ======================
-client.on('qr', (qr) => {
-  console.log('Scan QR below:');
-  qrcode.generate(qr, { small: true });
-});
+    // QR
+    client.on('qr', (qr) => {
+      console.log('Scan QR below:');
+      qrcode.generate(qr, { small: true });
+    });
 
-// ======================
-// READY
-// ======================
-client.on('ready', () => {
-  console.log('✅ Bot Ready!');
-});
+    // Ready
+    client.on('ready', () => {
+      console.log('✅ Bot Ready!');
+    });
 
-// ======================
-// MESSAGES
-// ======================
-client.on('message', async (msg) => {
-  const text = msg.body.toLowerCase().trim();
+    // Messages
+    client.on('message', async (msg) => {
+      const text = msg.body.toLowerCase().trim();
 
-  if (text === "hi") {
-    return msg.reply("Hello 👋");
-  }
+      if (text === "hi") {
+        return msg.reply("Hello 👋");
+      }
 
-  if (text === "product") {
-    return msg.reply("milk ₹50\npaneer ₹300\nshirt ₹500");
-  }
-});
+      if (text === "product") {
+        return msg.reply("milk ₹50\npaneer ₹300\nshirt ₹500");
+      }
+    });
+
+    // Start
+    client.initialize();
+  })
+  .catch(err => {
+    console.log("Mongo Error ❌", err);
+  });
 
 // ======================
 // ERROR HANDLING
@@ -77,8 +75,3 @@ client.on('message', async (msg) => {
 process.on("unhandledRejection", err => {
   console.log("Error:", err);
 });
-
-// ======================
-// START BOT
-// ======================
-client.initialize();
