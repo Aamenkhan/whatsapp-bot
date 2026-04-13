@@ -1,0 +1,2 @@
+[phases.setup]
+nixPkgs = ["chromium", "glib", "nss", "atk", "at-spi2-atk", "cups", "libxkbcommon"]
