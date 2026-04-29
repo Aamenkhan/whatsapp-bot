@@ -14,7 +14,10 @@ const path = require('path');
 // ======================
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  transports: ['polling', 'websocket'],
+});
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -83,8 +86,16 @@ mongoose.connect(process.env.MONGO_URL, {
       backupSyncIntervalMs: 300000
     }),
     puppeteer: {
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      headless: true
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+      ],
+      headless: true,
     }
   });
 

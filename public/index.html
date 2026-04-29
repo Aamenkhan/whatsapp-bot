@@ -289,7 +289,7 @@
         <!-- Waiting state -->
         <div class="waiting-wrap" id="waitingState">
           <div class="spinner"></div>
-          <div>Server se connect ho raha hai...</div>
+          <div id="waitingText">Server se connect ho raha hai...</div>
         </div>
 
         <!-- QR state -->
@@ -368,7 +368,13 @@
 </div>
 
 <script>
-  const socket = window.io();
+  const socket = window.io({ transports: ['polling', 'websocket'], reconnectionAttempts: 10 });
+
+  socket.on('connect', () => {
+    const t = document.getElementById('waitingText');
+    if (t) t.textContent = 'WhatsApp se connect ho raha hai...';
+  });
+  socket.on('disconnect', () => setStatus('disconnected'));
   let receivedCount = 0, sentCount = 0;
 
   function setStatus(status, phone) {
