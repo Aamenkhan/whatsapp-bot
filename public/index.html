@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Bot Dashboard</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* HEADER */
+    .header {
+      background: linear-gradient(135deg, #128C7E, #075E54);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    .header-icon { font-size: 28px; }
+    .header h1 { font-size: 20px; font-weight: 600; color: #fff; }
+    .header-sub { font-size: 12px; color: rgba(255,255,255,0.7); }
+
+    /* STATUS BADGE */
+    .status-badge {
+      margin-left: auto;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    .status-badge.connected { background: rgba(37, 211, 102, 0.15); color: #25D366; border: 1px solid #25D366; }
+    .status-badge.connected .status-dot { background: #25D366; }
+    .status-badge.qr { background: rgba(255, 193, 7, 0.15); color: #FFC107; border: 1px solid #FFC107; }
+    .status-badge.qr .status-dot { background: #FFC107; }
+    .status-badge.disconnected { background: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid #FF5252; }
+    .status-badge.disconnected .status-dot { background: #FF5252; animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* LAYOUT */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 16px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    /* CARD */
+    .card {
+      background: #1a1a1a;
+      border-radius: 12px;
+      border: 1px solid #2a2a2a;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 13px;
+      font-weight: 600;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-body { padding: 18px; }
+
+    /* QR SECTION */
+    .qr-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 0;
+    }
+    .qr-wrap img {
+      width: 220px;
+      height: 220px;
+      border-radius: 10px;
+      border: 3px solid #25D366;
+      background: white;
+      padding: 8px;
+    }
+    .qr-instruction {
+      text-align: center;
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    .qr-instruction strong { color: #25D366; }
+
+    .connected-info {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 0;
+    }
+    .big-tick {
+      font-size: 60px;
+      line-height: 1;
+    }
+    .phone-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #25D366;
+    }
+    .connected-label {
+      font-size: 13px;
+      color: #888;
+    }
+
+    .waiting-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 30px 0;
+      color: #555;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #333;
+      border-top-color: #128C7E;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* STATS */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .stat-box {
+      background: #111;
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      border: 1px solid #222;
+    }
+    .stat-num { font-size: 28px; font-weight: 700; color: #25D366; }
+    .stat-label { font-size: 11px; color: #666; margin-top: 4px; text-transform: uppercase; }
+
+    /* SEND FORM */
+    .send-form { display: flex; flex-direction: column; gap: 10px; }
+    .form-group label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+      display: block;
+    }
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+      resize: none;
+    }
+    .form-group input:focus,
+    .form-group textarea:focus { border-color: #128C7E; }
+
+    .btn-send {
+      background: linear-gradient(135deg, #128C7E, #075E54);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 11px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-send:hover { opacity: 0.85; }
+    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .send-result {
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      display: none;
+    }
+    .send-result.success { background: rgba(37, 211, 102, 0.1); color: #25D366; border: 1px solid #25D366; }
+    .send-result.error { background: rgba(255, 82, 82, 0.1); color: #FF5252; border: 1px solid #FF5252; }
+
+    /* MESSAGE LOG */
+    .msg-log {
+      max-height: 320px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 4px 0;
+    }
+    .msg-log::-webkit-scrollbar { width: 4px; }
+    .msg-log::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+    .msg-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .msg-item.received { background: #1e2a1e; border-left: 3px solid #25D366; }
+    .msg-item.sent { background: #1a1f2e; border-left: 3px solid #128C7E; }
+
+    .msg-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .msg-from { font-weight: 600; font-size: 12px; }
+    .msg-item.received .msg-from { color: #25D366; }
+    .msg-item.sent .msg-from { color: #128C7E; }
+    .msg-time { font-size: 11px; color: #555; }
+    .msg-body { color: #ccc; white-space: pre-wrap; word-break: break-word; }
+
+    .empty-log {
+      text-align: center;
+      color: #444;
+      font-size: 13px;
+      padding: 30px 0;
+    }
+
+    .right-col { display: flex; flex-direction: column; gap: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <span class="header-icon">🤖</span>
+  <div>
+    <h1>WhatsApp Bot Dashboard</h1>
+    <div class="header-sub">Live control panel</div>
+  </div>
+  <div class="status-badge disconnected" id="statusBadge">
+    <span class="status-dot"></span>
+    <span id="statusText">Disconnected</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- LEFT: QR / Status -->
+  <div class="left-col">
+    <div class="card">
+      <div class="card-header">📱 WhatsApp Connection</div>
+      <div class="card-body">
+
+        <!-- Waiting state -->
+        <div class="waiting-wrap" id="waitingState">
+          <div class="spinner"></div>
+          <div>Server se connect ho raha hai...</div>
+        </div>
+
+        <!-- QR state -->
+        <div class="qr-wrap" id="qrState" style="display:none">
+          <img id="qrImage" src="" alt="QR Code" />
+          <div class="qr-instruction">
+            WhatsApp kholo → <strong>Linked Devices</strong><br/>
+            → <strong>Link a Device</strong> → QR scan karo
+          </div>
+        </div>
+
+        <!-- Connected state -->
+        <div class="connected-info" id="connectedState" style="display:none">
+          <div class="big-tick">✅</div>
+          <div class="phone-num" id="phoneNum">+91 XXXXXXXXXX</div>
+          <div class="connected-label">Bot active & running</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Send Message -->
+    <div class="card">
+      <div class="card-header">📤 Message Bhejo</div>
+      <div class="card-body">
+        <div class="send-form">
+          <div class="form-group">
+            <label>WhatsApp Number (91XXXXXXXXXX)</label>
+            <input type="text" id="sendNumber" placeholder="919876543210" />
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea id="sendMessage" rows="3" placeholder="Apna message likho..."></textarea>
+          </div>
+          <button class="btn-send" id="sendBtn" disabled onclick="sendMessage()">Send Message</button>
+          <div class="send-result" id="sendResult"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Stats + Log -->
+  <div class="right-col">
+
+    <!-- Stats -->
+    <div class="card">
+      <div class="card-header">📊 Stats</div>
+      <div class="card-body">
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-num" id="statReceived">0</div>
+            <div class="stat-label">Messages Received</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-num" id="statSent">0</div>
+            <div class="stat-label">Replies Sent</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Message Log -->
+    <div class="card" style="flex:1">
+      <div class="card-header">
+        💬 Live Message Log
+        <span style="margin-left:auto;font-size:11px;font-weight:400;color:#555;text-transform:none;">last 50 messages</span>
+      </div>
+      <div class="card-body" style="padding:12px">
+        <div class="msg-log" id="msgLog">
+          <div class="empty-log" id="emptyLog">Abhi koi message nahi aaya...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const socket = window.io();
+  let receivedCount = 0, sentCount = 0;
+
+  function setStatus(status, phone) {
+    const badge = document.getElementById('statusBadge');
+    const text = document.getElementById('statusText');
+    const sendBtn = document.getElementById('sendBtn');
+
+    badge.className = 'status-badge ' + status;
+    sendBtn.disabled = (status !== 'connected');
+
+    if (status === 'connected') {
+      text.textContent = 'Connected';
+      document.getElementById('waitingState').style.display = 'none';
+      document.getElementById('qrState').style.display = 'none';
+      document.getElementById('connectedState').style.display = 'flex';
+      if (phone) document.getElementById('phoneNum').textContent = '+' + phone;
+    } else if (status === 'qr') {
+      text.textContent = 'Scan QR';
+      document.getElementById('waitingState').style.display = 'none';
+      document.getElementById('qrState').style.display = 'flex';
+      document.getElementById('connectedState').style.display = 'none';
+    } else {
+      text.textContent = 'Disconnected';
+      document.getElementById('waitingState').style.display = 'flex';
+      document.getElementById('qrState').style.display = 'none';
+      document.getElementById('connectedState').style.display = 'none';
+    }
+  }
+
+  function addMessage(msg) {
+    const log = document.getElementById('msgLog');
+    const empty = document.getElementById('emptyLog');
+    if (empty) empty.remove();
+
+    if (msg.type === 'received') receivedCount++;
+    else sentCount++;
+    document.getElementById('statReceived').textContent = receivedCount;
+    document.getElementById('statSent').textContent = sentCount;
+
+    const div = document.createElement('div');
+    div.className = 'msg-item ' + msg.type;
+    div.innerHTML = `
+      <div class="msg-meta">
+        <span class="msg-from">${msg.type === 'received' ? '📩 ' + msg.from : '🤖 Bot'}</span>
+        <span class="msg-time">${msg.time}</span>
+      </div>
+      <div class="msg-body">${msg.body.replace(/</g,'&lt;')}</div>
+    `;
+    log.insertBefore(div, log.firstChild);
+    if (log.children.length > 50) log.removeChild(log.lastChild);
+  }
+
+  socket.on('status', ({ status, phone }) => setStatus(status, phone));
+
+  socket.on('qr', (dataUrl) => {
+    document.getElementById('qrImage').src = dataUrl;
+    setStatus('qr');
+  });
+
+  socket.on('message', (msg) => addMessage(msg));
+
+  socket.on('history', (msgs) => {
+    msgs.slice().reverse().forEach(m => addMessage(m));
+  });
+
+  async function sendMessage() {
+    const number = document.getElementById('sendNumber').value.trim();
+    const message = document.getElementById('sendMessage').value.trim();
+    const result = document.getElementById('sendResult');
+
+    if (!number || !message) {
+      showResult('Number aur message dono required hai', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+    btn.textContent = 'Bhej raha hai...';
+
+    try {
+      const res = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number, message })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showResult('✅ Message bhej diya!', 'success');
+        document.getElementById('sendMessage').value = '';
+      } else {
+        showResult('❌ ' + data.error, 'error');
+      }
+    } catch (e) {
+      showResult('❌ Network error', 'error');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Send Message';
+  }
+
+  function showResult(msg, type) {
+    const el = document.getElementById('sendResult');
+    el.textContent = msg;
+    el.className = 'send-result ' + type;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 3000);
+  }
+</script>
+</body>
+</html>
