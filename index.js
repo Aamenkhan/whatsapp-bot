@@ -174,11 +174,23 @@ async function startWhatsApp() {
     for (const msg of msgs) {
       if (!msg.message || msg.key.fromMe) continue;
 
+      // Ignore reactions, stickers, images, voice notes
+      if (
+        msg.message.reactionMessage ||
+        msg.message.stickerMessage ||
+        msg.message.imageMessage ||
+        msg.message.audioMessage ||
+        msg.message.videoMessage ||
+        msg.message.documentMessage
+      ) continue;
+
       const text = (
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
         ''
       ).toLowerCase().trim();
+
+      if (!text) continue; // empty message ignore karo
 
       const jid = msg.key.remoteJid;
       const from = jid?.replace('@s.whatsapp.net', '') || 'unknown';
