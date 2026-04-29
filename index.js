@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, RemoteAuth } = require('whatsapp-web.js');
 const { MongoStore } = require('wwebjs-mongo');
 const mongoose = require('mongoose');
 const express = require('express');
@@ -16,7 +16,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
-  transports: ['polling', 'websocket'],
 });
 const PORT = process.env.PORT || 3000;
 
@@ -24,26 +23,17 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Bot state
-let botState = {
-  status: 'disconnected', // disconnected | qr | connected
-  qr: null,
-  messages: [],
-  phone: null,
-};
+let botState = { status: 'disconnected', qr: null, messages: [], phone: null };
+let whatsappClient = null;
 
 app.get('/api/status', (req, res) => {
-  res.json({
-    status: botState.status,
-    phone: botState.phone,
-    messageCount: botState.messages.length,
-  });
+  res.json({ status: botState.status, phone: botState.phone, messageCount: botState.messages.length });
 });
 
 app.post('/api/send', async (req, res) => {
   const { number, message } = req.body;
   if (!number || !message) return res.status(400).json({ error: 'number aur message required hai' });
-  if (botState.status !== 'connected') return res.status(503).json({ error: 'Bot connected nahi hai' });
-
+  if (botState.status !== 'connected' || !whatsappClient) return res.status(503).json({ error: 'Bot connected nahi hai' });
   try {
     const chatId = number.replace(/[^0-9]/g, '') + '@c.us';
     await whatsappClient.sendMessage(chatId, message);
@@ -53,8 +43,13 @@ app.post('/api/send', async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log('Server running on port', PORT);
+server.listen(PORT, () => console.log('Server running on port', PORT));
+
+// Socket connection
+io.on('connection', (socket) => {
+  socket.emit('status', { status: botState.status, phone: botState.phone });
+  if (botState.qr) socket.emit('qr', botState.qr);
+  if (botState.messages.length > 0) socket.emit('history', botState.messages);
 });
 
 // ======================
@@ -67,121 +62,129 @@ if (!process.env.MONGO_URL) {
   process.exit(1);
 }
 
-let whatsappClient;
+mongoose.connect(process.env.MONGO_URL, { serverSelectionTimeoutMS: 15000 })
+  .then(() => {
+    console.log("MongoDB Connected ✅");
+    startWhatsApp();
+  })
+  .catch(err => {
+    console.log("Mongo Error ❌", err.message);
+  });
 
-mongoose.connect(process.env.MONGO_URL, {
-  serverSelectionTimeoutMS: 10000,
-})
-.then(() => {
-  console.log("MongoDB Connected ✅");
+// ======================
+// WHATSAPP — AUTO RESTART
+// ======================
+async function startWhatsApp() {
+  console.log('Starting WhatsApp client...');
 
-  // ======================
-  // WHATSAPP CLIENT
-  // ======================
-  const store = new MongoStore({ mongoose });
-
-  whatsappClient = new Client({
-    authStrategy: new RemoteAuth({
-      store: store,
-      backupSyncIntervalMs: 300000
-    }),
-    puppeteer: {
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-      ],
-      headless: true,
+  try {
+    // Destroy old client if exists
+    if (whatsappClient) {
+      try { await whatsappClient.destroy(); } catch (_) {}
+      whatsappClient = null;
     }
-  });
 
-  // QR Code
-  whatsappClient.on('qr', async (qr) => {
-    console.log('📱 QR ready - browser mein dekho');
-    const qrImage = await qrcode.toDataURL(qr);
-    botState.status = 'qr';
-    botState.qr = qrImage;
-    io.emit('qr', qrImage);
-    io.emit('status', { status: 'qr' });
-  });
+    const store = new MongoStore({ mongoose });
 
-  // Ready
-  whatsappClient.on('ready', () => {
-    console.log('✅ Bot Ready!');
-    botState.status = 'connected';
-    botState.qr = null;
-    const info = whatsappClient.info;
-    botState.phone = info ? info.wid.user : null;
-    io.emit('status', { status: 'connected', phone: botState.phone });
-  });
+    whatsappClient = new Client({
+      authStrategy: new RemoteAuth({
+        store,
+        backupSyncIntervalMs: 600000,
+      }),
+      puppeteer: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--mute-audio',
+          '--hide-scrollbars',
+        ],
+      },
+    });
 
-  // Disconnected
-  whatsappClient.on('disconnected', (reason) => {
-    console.log('❌ Disconnected:', reason);
+    whatsappClient.on('qr', async (qr) => {
+      console.log('📱 QR generated');
+      try {
+        const qrImage = await qrcode.toDataURL(qr);
+        botState.status = 'qr';
+        botState.qr = qrImage;
+        io.emit('qr', qrImage);
+        io.emit('status', { status: 'qr' });
+      } catch (e) {
+        console.log('QR gen error:', e.message);
+      }
+    });
+
+    whatsappClient.on('ready', () => {
+      console.log('✅ Bot Ready!');
+      botState.status = 'connected';
+      botState.qr = null;
+      const info = whatsappClient.info;
+      botState.phone = info ? info.wid.user : null;
+      io.emit('status', { status: 'connected', phone: botState.phone });
+    });
+
+    whatsappClient.on('auth_failure', (msg) => {
+      console.log('❌ Auth failure:', msg);
+      botState.status = 'disconnected';
+      io.emit('status', { status: 'disconnected' });
+      setTimeout(startWhatsApp, 15000);
+    });
+
+    whatsappClient.on('disconnected', (reason) => {
+      console.log('❌ Disconnected:', reason);
+      botState.status = 'disconnected';
+      botState.qr = null;
+      botState.phone = null;
+      io.emit('status', { status: 'disconnected' });
+      setTimeout(startWhatsApp, 15000);
+    });
+
+    whatsappClient.on('message', async (msg) => {
+      const text = msg.body.toLowerCase().trim();
+      const from = msg.from.replace('@c.us', '');
+      const timestamp = new Date().toLocaleTimeString('en-IN');
+
+      const logEntry = { from, body: msg.body, time: timestamp, type: 'received' };
+      botState.messages.unshift(logEntry);
+      if (botState.messages.length > 50) botState.messages.pop();
+      io.emit('message', logEntry);
+
+      const reply = async (text) => {
+        await msg.reply(text);
+        const sent = { from: 'Bot', body: text, time: timestamp, type: 'sent' };
+        botState.messages.unshift(sent);
+        io.emit('message', sent);
+      };
+
+      if (text === 'hi' || text === 'hello') return reply('Hello 👋 Kaise madad kar sakta hoon?\nType *product* ya *help*');
+      if (text === 'product' || text === 'products') return reply('🛒 *Humare Products:*\n\n🥛 Milk - ₹50\n🧀 Paneer - ₹300\n👕 Shirt - ₹500');
+      if (text === 'help') return reply('🤖 *Commands:*\n\nhi - greeting\nproduct - products dekho\nhelp - yeh list');
+    });
+
+    await whatsappClient.initialize();
+
+  } catch (err) {
+    console.log('WhatsApp start error:', err.message);
     botState.status = 'disconnected';
-    botState.qr = null;
-    botState.phone = null;
     io.emit('status', { status: 'disconnected' });
-  });
+    console.log('Restarting in 20s...');
+    setTimeout(startWhatsApp, 20000);
+  }
+}
 
-  // Message handler
-  whatsappClient.on('message', async (msg) => {
-    const text = msg.body.toLowerCase().trim();
-    const from = msg.from.replace('@c.us', '');
-    const timestamp = new Date().toLocaleTimeString('en-IN');
-
-    // Log message
-    const logEntry = { from, body: msg.body, time: timestamp, type: 'received' };
-    botState.messages.unshift(logEntry);
-    if (botState.messages.length > 50) botState.messages.pop();
-    io.emit('message', logEntry);
-
-    // Auto replies
-    if (text === "hi" || text === "hello") {
-      await msg.reply("Hello 👋 Kaise madad kar sakta hoon?");
-      io.emit('message', { from: 'Bot', body: 'Hello 👋 Kaise madad kar sakta hoon?', time: timestamp, type: 'sent' });
-      return;
-    }
-
-    if (text === "product" || text === "products") {
-      const productMsg = "🛒 *Humare Products:*\n\n🥛 Milk - ₹50\n🧀 Paneer - ₹300\n👕 Shirt - ₹500";
-      await msg.reply(productMsg);
-      io.emit('message', { from: 'Bot', body: productMsg, time: timestamp, type: 'sent' });
-      return;
-    }
-
-    if (text === "help") {
-      const helpMsg = "🤖 *Commands:*\n\nhi - greeting\nproduct - products dekho\nhelp - yeh list";
-      await msg.reply(helpMsg);
-      io.emit('message', { from: 'Bot', body: helpMsg, time: timestamp, type: 'sent' });
-      return;
-    }
-  });
-
-  // Start client
-  whatsappClient.initialize();
-
-})
-.catch(err => {
-  console.log("Mongo Error ❌", err.message);
-  console.log("Tip: Atlas me IP whitelist + DB user credentials verify karo.");
+// Keep process alive — never crash on unhandled errors
+process.on('unhandledRejection', (err) => {
+  console.log('Unhandled rejection:', err?.message || err);
 });
-
-// Socket connection
-io.on('connection', (socket) => {
-  // Send current state to new clients
-  socket.emit('status', { status: botState.status, phone: botState.phone });
-  if (botState.qr) socket.emit('qr', botState.qr);
-  if (botState.messages.length > 0) socket.emit('history', botState.messages);
-});
-
-// ======================
-// ERROR HANDLING
-// ======================
-process.on("unhandledRejection", err => {
-  console.log("Error:", err);
+process.on('uncaughtException', (err) => {
+  console.log('Uncaught exception:', err?.message || err);
 });
